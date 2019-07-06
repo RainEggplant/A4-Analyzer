@@ -1,18 +1,59 @@
 # %%
+import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker
 import librosa
 import librosa.display
+import colorama
+from colorama import Fore, Back, Style
 
 
 def main():
+    colorama.init()
+    parser = argparse.ArgumentParser(
+        description='''This tool can analyze audio files and estimate the frequecy of A4.''')
+    parser.add_argument("filename")
+    parser.add_argument('-s', '--silent', action="store_true", dest='silent',
+                        help='process the given audio file silently')
+    parser.add_argument('-o', '--offset', dest='offset', type=float, default=0,
+                        help='the offset of the audio to process')
+    parser.add_argument('-d', '--duration', dest='duration', type=float,
+                        help='the duration of the audio to process')
+
+    args = parser.parse_args()
+    if (args.silent):
+        auto_process(args.filename, args.offset, args.duration)
+    else:
+        print(Fore.YELLOW + Back.RED + Style.BRIGHT +
+              'Welcome to RainEggplant\'s concert pitch analyzer!\n' + Style.RESET_ALL)
+        print(Fore.YELLOW + Style.BRIGHT +
+              'Please follow the instructions to get the result:' + Style.RESET_ALL)
+        print(Fore.YELLOW + Style.BRIGHT + '[1] ' + Style.RESET_ALL +
+              'We are going to generate a spectrogram with pitch lines.\n' +
+              'After the window pops up, please come back to watch the instructions.')
+        input("Press Enter to continue...")
+        print('This may take serveral seconds, please wait.\n')
+        show_spectrogram(args.filename, args.offset, args.duration)
+
+        print(Fore.YELLOW + Style.BRIGHT + '[2] ' + Style.RESET_ALL +
+              'Now you have seen the spectrogram.\n' +
+              '- The green lines are peak frequency of that location.\n' +
+              '- The white vertical lines divide the spectrogram into serveral fragments, according to pitch and volume changes.\n' +
+              '  They are labeled with index. If they are overlapped, you can zoom in to see clearly.'
+              '- You can use the tools in the tool bar to zoom, drag, etc.\n' +
+              '- The time, frequency and note(relative to A4=440Hz) which you are pointing at will be shown in the status bar.\n')
+
+        print(Fore.YELLOW + Style.BRIGHT + '[3] ' + Style.RESET_ALL +
+              'Now you need to select the fragments used for analyzing.')
+
+        print("This")
+        input()
+
+
+def show_spectrogram(filename, offset, duration):
     # %% Configuration
-    # audio_path = './audio/1_C3-3_E3.wav'
-    audio_path = './audio/test.wav'
     sr = 22050
-    offset = 0.2
-    duration = 4
     n_fft = 8192
     win_len = 4096
     hop_len = 256
@@ -23,14 +64,14 @@ def main():
 
     # %% Detect onset frames
     y, t_sr = librosa.load(
-        audio_path, sr=None, mono=True, offset=offset, duration=duration)
+        filename, sr=None, mono=True, offset=offset, duration=duration)
     onset_frames = librosa.onset.onset_detect(y=y, sr=t_sr, hop_length=hop_len)
     onset_time = librosa.frames_to_time(
         onset_frames, sr=t_sr, hop_length=hop_len)
 
     # %% STFT
     y, sr = librosa.load(
-        audio_path, sr=sr, mono=True, offset=offset, duration=duration)
+        filename, sr=sr, mono=True, offset=offset, duration=duration)
     Y = librosa.stft(y, n_fft=n_fft, win_length=win_len, hop_length=hop_len)
     Ydb = librosa.amplitude_to_db(abs(Y), ref=np.max)
 
@@ -44,10 +85,23 @@ def main():
         range(0, Y.shape[1] + 1), sr=sr, hop_length=hop_len)
 
     # %% Create a spectrogram
-    plt.figure(figsize=(14, 10))
+    fig = plt.figure(figsize=(14, 10))
 
-    # %% Configure frequency-time figure
-    ax_freq_t = plt.gca()
+    # %% Add axes for onset text
+    rect_onset = [0.052, 0.96, 0.88, 0.01]
+    rect_freq = [0.05, 0.05, 0.88, 0.9]
+
+    # Remove boarder and ticks of the onset axes
+    ax_onset_t = fig.add_axes(rect_onset)
+    ax_onset_t.spines['top'].set_visible(False)
+    ax_onset_t.spines['right'].set_visible(False)
+    ax_onset_t.spines['bottom'].set_visible(False)
+    ax_onset_t.spines['left'].set_visible(False)
+    ax_onset_t.set_xticks([])
+    ax_onset_t.set_yticks([])
+
+    # Configure frequency-time figure
+    ax_freq_t = fig.add_axes(rect_freq, sharex=ax_onset_t)
     ax_freq_t.set_xlabel('Time')
     ax_freq_t.set_ylabel('Hz')
     ax_freq_t.set_yscale('log', basey=2)
@@ -56,13 +110,16 @@ def main():
 
     # %% Plot frequency-time figure
     cmap = plt.cm.get_cmap('inferno')
-    plt.pcolormesh(
+    ax_freq_t.pcolormesh(
         bin_xpos, bin_ypos, Ydb[min_bin: max_bin, :],  cmap=cmap)
-    plt.colorbar(format='%+2.0f dB', pad=0.1)
+    # plt.colorbar(format='%+2.0f dB', pad=0.1)
 
     # %% Plot onset time
+    count = 0
     for i in onset_time:
-        plt.vlines(i, 0, sr / 2, colors='w', linestyles='solid')
+        ax_freq_t.vlines(i, 0, sr / 2, colors='w', linestyles='solid')
+        ax_onset_t.text(i, 0, count)
+        count += 1
 
     # %% Detect pitches
     pitches, magnitudes = librosa.piptrack(
@@ -102,7 +159,24 @@ def main():
     ax_note_t.format_coord = make_format(ax_note_t, ax_freq_t)
 
     # %% Show the spectrogram
+    plt.ion()
     plt.show()
+    return onset_frames, line_frames, line_freq
+
+
+def auto_process(filename, offset, duration):
+    # %%
+    y, sr = librosa.load(
+        filename, mono=True, offset=offset, duration=duration)
+    pitches, magnitudes = librosa.piptrack(y, sr)
+    # Select out pitches with high energy
+    # pitches = pitches[magnitudes > np.median(magnitudes)]
+    # %%
+    offset_to_a4 = librosa.pitch_tuning(pitches)
+    # %%
+    a4 = 440 * (2 ** (offset_to_a4 / 12))
+    # %%
+    print('Estimated frequency of A4 is {:.1f}'.format(a4))
 
 
 def make_format(current, other):
