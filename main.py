@@ -206,6 +206,7 @@ def show_spectrogram(filename, offset, duration):
 
     # %% Create a spectrogram
     fig = plt.figure(figsize=(14, 10))
+    fig.canvas.set_window_title('Spectrogram')
 
     # %% Add axes for onset text
     rect_onset = [0.052, 0.96, 0.88, 0]
