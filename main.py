@@ -1,12 +1,22 @@
 # %%
 import argparse
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.ticker
+import colorama
 import librosa
 import librosa.display
-import colorama
-from colorama import Fore, Back, Style
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+import numpy as np
+from colorama import Back, Fore, Style
+
+# %% Configuration
+sample_rate = 22050
+n_fft = 8192
+win_len = 4096
+hop_len = 256
+min_freq = 128
+max_freq = 1024
+min_pitch_frame = 3
+pitch_threshold = 0.2
 
 
 def main():
@@ -32,7 +42,9 @@ def main():
         print(Fore.YELLOW + Style.BRIGHT + '[1] ' + Style.RESET_ALL +
               'We are going to generate a spectrogram with pitch lines.\n' +
               'After the window pops up, please come back to watch the instructions.')
-        input("Press Enter to continue...")
+        print(Fore.CYAN + Style.BRIGHT +
+              "Press Enter to continue... " + Style.RESET_ALL, end='')
+        input()
         print('This may take serveral seconds, please wait.\n')
         show_spectrogram(args.filename, args.offset, args.duration)
 
@@ -40,38 +52,92 @@ def main():
               'Now you have seen the spectrogram.\n' +
               '- The green lines are peak frequency of that location.\n' +
               '- The white vertical lines divide the spectrogram into serveral fragments, according to pitch and volume changes.\n' +
-              '  They are labeled with index. If they are overlapped, you can zoom in to see clearly.'
-              '- You can use the tools in the tool bar to zoom, drag, etc.\n' +
-              '- The time, frequency and note(relative to A4=440Hz) which you are pointing at will be shown in the status bar.\n')
+              '  They are labeled with index. If the labels are overlapped, you can zoom in to seperate them.\n'
+              '- You can also use the tools in the tool bar to zoom, drag, save, etc.\n' +
+              '- The time, frequency and note (relative to A4=440Hz) which you are pointing at will be shown in the status bar.\n')
 
         print(Fore.YELLOW + Style.BRIGHT + '[3] ' + Style.RESET_ALL +
-              'Now you need to select the fragments used for analyzing.')
+              'After you inspect the spectrogram, you need to decide whether the data is suitable for analyzing or not.\n' +
+              'If not suitable, re-run the program with different offset, duration or filename.')
+        print(Fore.CYAN + Style.BRIGHT +
+              'Process current data? (y/n): ' + Style.RESET_ALL, end='')
+        cont = input()
+        while cont.lower() not in ('y', 'n'):
+            print(Fore.CYAN + 'Process current data? (y/n): ' +
+                  Style.RESET_ALL, end='')
+            cont = input()
+        if cont == 'n':
+            return
 
-        print("This")
-        input()
+        print('\n' + Fore.YELLOW + Style.BRIGHT + '[4] ' + Style.RESET_ALL +
+              'Now you need to select the range of the audio file for analyzing. There are two options:\n' +
+              '\t1. Give start and end time, and let the program analyze automatically (similar to `silent mode`).\n' +
+              '\t2. Select the fragments that will be used for analyzing, you can also specify the notes in this mode.\n' +
+              '\t   This mode will give you a more accurate and specific result.')
+        print(Fore.CYAN + Style.BRIGHT +
+              'Select mode: (1/2): ' + Style.RESET_ALL, end='')
+        mode = input()
+        while mode.lower() not in ('1', '2'):
+            print(Fore.CYAN + 'Select mode: (1/2): ' + Style.RESET_ALL, end='')
+            mode = input()
+
+        if mode == '1':
+            print('\n' + Fore.YELLOW + Style.BRIGHT + '[5] ' + Style.RESET_ALL +
+                  'Now enter the start and end time according to the spectrogram:')
+            # TODO: Add validation.
+            while True:
+                start_time = float(
+                    input('start time: '))
+                end_time = float(input('end time: '))
+                print(Fore.YELLOW + Style.BRIGHT, end='')
+                auto_process(args.filename, args.offset +
+                             start_time, end_time - start_time)
+
+                # Re-estimate using another range
+                print(Style.RESET_ALL + Fore.CYAN + Style.BRIGHT +
+                      'Re-estimate using another range?: (y/n): ' + Style.RESET_ALL, end='')
+                again = input()
+                while again.lower() not in ('y', 'n'):
+                    print(Fore.CYAN + Style.BRIGHT +
+                          'Re-estimate using another range?: (y/n): ' + Style.RESET_ALL, end='')
+                    again = input()
+
+                if again.lower() == 'n':
+                    break
+
+        else:
+            print('\n' + Fore.YELLOW + Style.BRIGHT + '[5] ' + Style.RESET_ALL +
+                  'Now enter the index of the fragments, seperated by space: ')
+            # TODO: Add validation.
+            while True:
+                frag_idx = list(map(int, input('> ').split()))
+
+                # Re-iput
+                print(Style.RESET_ALL + Fore.CYAN + Style.BRIGHT +
+                      'Re-estimate using another range?: (y/n): ' + Style.RESET_ALL, end='')
+                again = input()
+                while again.lower() not in ('y', 'n'):
+                    print(Fore.CYAN + Style.BRIGHT +
+                          'Re-estimate using another range?: (y/n): ' + Style.RESET_ALL, end='')
+                    again = input()
+
+                if again.lower() == 'n':
+                    break
+
+            print('hmp')
 
 
 def show_spectrogram(filename, offset, duration):
-    # %% Configuration
-    sr = 22050
-    n_fft = 8192
-    win_len = 4096
-    hop_len = 256
-    min_freq = 128
-    max_freq = 1024
-    min_pitch_frame = 3
-    pitch_threshold = 0.2
-
     # %% Detect onset frames
     y, t_sr = librosa.load(
-        filename, sr=None, mono=True, offset=offset, duration=duration)
+        filename, sr=sample_rate, mono=True, offset=offset, duration=duration)
     onset_frames = librosa.onset.onset_detect(y=y, sr=t_sr, hop_length=hop_len)
     onset_time = librosa.frames_to_time(
         onset_frames, sr=t_sr, hop_length=hop_len)
 
     # %% STFT
     y, sr = librosa.load(
-        filename, sr=sr, mono=True, offset=offset, duration=duration)
+        filename, sr=sample_rate, mono=True, offset=offset, duration=duration)
     Y = librosa.stft(y, n_fft=n_fft, win_length=win_len, hop_length=hop_len)
     Ydb = librosa.amplitude_to_db(abs(Y), ref=np.max)
 
@@ -88,17 +154,12 @@ def show_spectrogram(filename, offset, duration):
     fig = plt.figure(figsize=(14, 10))
 
     # %% Add axes for onset text
-    rect_onset = [0.052, 0.96, 0.88, 0.01]
+    rect_onset = [0.052, 0.96, 0.88, 0]
     rect_freq = [0.05, 0.05, 0.88, 0.9]
 
     # Remove boarder and ticks of the onset axes
     ax_onset_t = fig.add_axes(rect_onset)
-    ax_onset_t.spines['top'].set_visible(False)
-    ax_onset_t.spines['right'].set_visible(False)
-    ax_onset_t.spines['bottom'].set_visible(False)
-    ax_onset_t.spines['left'].set_visible(False)
-    ax_onset_t.set_xticks([])
-    ax_onset_t.set_yticks([])
+    ax_onset_t.set_axis_off()
 
     # Configure frequency-time figure
     ax_freq_t = fig.add_axes(rect_freq, sharex=ax_onset_t)
@@ -153,8 +214,16 @@ def show_spectrogram(filename, offset, duration):
     ax_note_t.set_ylabel('Note (relative to A4=440)')
     ax_note_t.set_yscale('log', basey=2)
     ax_note_t.set_ylim([min_freq, max_freq])
+
+    # note = librosa.hz_to_note(2, cents=True)
+    # index = note.rfind('+')
+    # if (index == -1):
+    #     index = note.rfind('-')
+    # cent = int(note[index:])
+    factor = 0.031359713
+
     ax_note_t.yaxis.set_major_locator(
-        matplotlib.ticker.LogLocator(base=2, subs=[2 ** i for i in np.arange(0, 1, 1/12)]))
+        ticker.LogLocator(base=2, subs=[2 ** i for i in (np.arange(0, 1, 1/12) + factor)]))
     ax_note_t.yaxis.set_major_formatter(librosa.display.NoteFormatter())
     ax_note_t.format_coord = make_format(ax_note_t, ax_freq_t)
 
@@ -164,19 +233,36 @@ def show_spectrogram(filename, offset, duration):
     return onset_frames, line_frames, line_freq
 
 
+def estimate_a4(pitches, sr):
+    pitches_sel = []
+    # Pick out pitches that last longer than `min_pitch_frame`
+    for row in range(0, pitches.shape[0]):
+        line_frames = []
+        line_freq = []
+        for col in range(0, pitches.shape[1]):
+            if(pitches[row, col] != 0):
+                line_frames.append(col)
+                line_freq.append(pitches[row, col])
+            else:
+                if (len(line_frames) > 0):
+                    if (len(line_frames) >= min_pitch_frame):
+                        line_time = librosa.frames_to_time(
+                            line_frames, sr=sr, hop_length=hop_len)
+                        if (line_freq[0] < max_freq):
+                            pitches_sel.extend(line_freq.copy())
+                    line_frames.clear()
+                    line_freq.clear()
+
+    offset_to_a4 = librosa.pitch_tuning(pitches_sel)
+    return 440 * (2 ** (offset_to_a4 / 12))
+
+
 def auto_process(filename, offset, duration):
-    # %%
     y, sr = librosa.load(
         filename, mono=True, offset=offset, duration=duration)
-    pitches, magnitudes = librosa.piptrack(y, sr)
-    # Select out pitches with high energy
-    # pitches = pitches[magnitudes > np.median(magnitudes)]
-    # %%
-    offset_to_a4 = librosa.pitch_tuning(pitches)
-    # %%
-    a4 = 440 * (2 ** (offset_to_a4 / 12))
-    # %%
-    print('Estimated frequency of A4 is {:.1f}'.format(a4))
+    pitches, magnitudes = librosa.piptrack(y, sr, threshold=pitch_threshold)
+    a4 = estimate_a4(pitches, sr)
+    print('Estimated frequency of A4 is {:.1f}\n'.format(a4))
 
 
 def make_format(current, other):
@@ -190,8 +276,6 @@ def make_format(current, other):
         ax_coord = inv.transform(display_coord)
         coords = [ax_coord, (x, y)]
         return ('Time: {:.3f}, Frequency: {:.2f}, Note: {}.'.format(ax_coord[0], ax_coord[1], librosa.hz_to_note(ax_coord[1], cents=True)))
-        # return ('Left: {:<40}    Right: {:<}'
-        #        .format(*['({:.3f}, {:.3f})'.format(x, y) for x, y in coords]))
     return format_coord
 
 
