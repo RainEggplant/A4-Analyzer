@@ -20,7 +20,9 @@ pitch_threshold = 0.2
 
 
 def main():
+    # Enable colored output
     colorama.init()
+
     parser = argparse.ArgumentParser(
         description='''This tool can analyze audio files and estimate the frequecy of A4.''')
     parser.add_argument("filename")
@@ -30,8 +32,8 @@ def main():
                         help='the offset of the audio to process')
     parser.add_argument('-d', '--duration', dest='duration', type=float,
                         help='the duration of the audio to process')
-
     args = parser.parse_args()
+
     if (args.silent):
         auto_process(args.filename, args.offset, args.duration)
     else:
@@ -46,7 +48,7 @@ def main():
               "Press Enter to continue... " + Style.RESET_ALL, end='')
         input()
         print('This may take serveral seconds, please wait.\n')
-        show_spectrogram(args.filename, args.offset, args.duration)
+        tunes = show_spectrogram(args.filename, args.offset, args.duration)
 
         print(Fore.YELLOW + Style.BRIGHT + '[2] ' + Style.RESET_ALL +
               'Now you have seen the spectrogram.\n' +
@@ -60,25 +62,26 @@ def main():
               'After you inspect the spectrogram, you need to decide whether the data is suitable for analyzing or not.\n' +
               'If not suitable, re-run the program with different offset, duration or filename.')
         print(Fore.CYAN + Style.BRIGHT +
-              'Process current data? (y/n): ' + Style.RESET_ALL, end='')
+              'Process current data? (y/n) ' + Style.RESET_ALL, end='')
         cont = input()
         while cont.lower() not in ('y', 'n'):
-            print(Fore.CYAN + 'Process current data? (y/n): ' +
+            print(Fore.CYAN + Style.BRIGHT + 'Process current data? (y/n) ' +
                   Style.RESET_ALL, end='')
             cont = input()
+
         if cont == 'n':
             return
 
         print('\n' + Fore.YELLOW + Style.BRIGHT + '[4] ' + Style.RESET_ALL +
-              'Now you need to select the range of the audio file for analyzing. There are two options:\n' +
+              'Now you need to select the range of the audio file for analyzing. There are two modes:\n' +
               '\t1. Give start and end time, and let the program analyze automatically (similar to `silent mode`).\n' +
-              '\t2. Select the fragments that will be used for analyzing, you can also specify the notes in this mode.\n' +
+              '\t2. [Pro] Give notes and their sustaining time.\n' +
               '\t   This mode will give you a more accurate and specific result.')
         print(Fore.CYAN + Style.BRIGHT +
-              'Select mode: (1/2): ' + Style.RESET_ALL, end='')
+              'Select mode: (1/2) ' + Style.RESET_ALL, end='')
         mode = input()
         while mode.lower() not in ('1', '2'):
-            print(Fore.CYAN + 'Select mode: (1/2): ' + Style.RESET_ALL, end='')
+            print(Fore.CYAN + 'Select mode: (1/2) ' + Style.RESET_ALL, end='')
             mode = input()
 
         if mode == '1':
@@ -95,11 +98,11 @@ def main():
 
                 # Re-estimate using another range
                 print(Style.RESET_ALL + Fore.CYAN + Style.BRIGHT +
-                      'Re-estimate using another range?: (y/n): ' + Style.RESET_ALL, end='')
+                      'Re-estimate using another range? (y/n) ' + Style.RESET_ALL, end='')
                 again = input()
                 while again.lower() not in ('y', 'n'):
                     print(Fore.CYAN + Style.BRIGHT +
-                          'Re-estimate using another range?: (y/n): ' + Style.RESET_ALL, end='')
+                          'Re-estimate using another range? (y/n) ' + Style.RESET_ALL, end='')
                     again = input()
 
                 if again.lower() == 'n':
@@ -107,34 +110,85 @@ def main():
 
         else:
             print('\n' + Fore.YELLOW + Style.BRIGHT + '[5] ' + Style.RESET_ALL +
-                  'Now enter the index of the fragments, seperated by space: ')
-            # TODO: Add validation.
-            while True:
-                frag_idx = list(map(int, input('> ').split()))
+                  'Now add the note, its start time and end time according to the pitch lines.\n' +
+                  '  Format: NOTENAME STARTTIME ENDTIME    (e.g. "A4 1.2 2")\n' +
+                  'Enter `q` to stop adding.')
 
-                # Re-iput
+            while True:
+                notes = []
+                # TODO: Add validation.
+                while True:
+                    input_msg = input('+ ')
+                    if input_msg.lower() == 'q':
+                        break
+                    notes.append(input_msg.split())
+
+                note_names = [row[0] for row in notes]
+
+                # Normalize note names (like Bb to A#)
+                for i in range(len(notes)):
+                    # notes[i][0] = librosa.hz_to_note(
+                    #     librosa.note_to_hz(notes[i][0]))
+                    notes[i][1] = float(notes[i][1])
+                    notes[i][2] = float(notes[i][2])
+
+                note_names = [row[0] for row in notes]
+                note_names = librosa.hz_to_note(librosa.note_to_hz(note_names))
+
+                # Filter pitches
+                tunes_match = {}
+                for note_name in note_names:
+                    tunes_match[note_name] = []
+
+                for (time_seq, freq_seq) in tunes:
+                    note_name = librosa.hz_to_note(np.mean(freq_seq))
+                    if note_name in note_names:
+                        tunes_match[note_name].append((time_seq, freq_seq))
+
+                # Calculate A4 frequencies from the notes
+                a4s = []
+                for i in range(len(notes)):
+                    n_frame = 0
+                    freq_sum = 0
+                    for (time_seq, freq_seq) in tunes_match[note_names[i]]:
+                        for t in range(len(time_seq)):
+                            if (time_seq[t] >= notes[i][1] and time_seq[t] <= notes[i][2]):
+                                n_frame += 1
+                                freq_sum += freq_seq[t]
+
+                    if n_frame == 0:
+                        print(Fore.RED + 'Warning: ' + Style.RESET_ALL +
+                              'note `%s` not found, skipping...' % notes[i][0])
+                        continue
+
+                    freq_avg = freq_sum / n_frame
+                    offset_to_a4 = librosa.pitch_tuning(freq_avg)
+                    a4 = 440 * (2 ** (offset_to_a4 / 12))
+                    a4s.append(a4)
+
+                print(Fore.YELLOW + Style.BRIGHT +
+                      'The estimated frequencies of A4 from each note are:\n\t', end='')
+                print(['{:.1f}'.format(i) for i in a4s])
+                print('Average estimated frequency: {:.1f} Hz, '.format(np.mean(a4s)) +
+                      'median frequency: {:.1f} Hz, '.format(np.median(a4s)) +
+                      'standard deviation: {:.1f} Hz.\n'.format(np.std(a4s)) + Style.RESET_ALL)
+
+                # Re-estimate
                 print(Style.RESET_ALL + Fore.CYAN + Style.BRIGHT +
-                      'Re-estimate using another range?: (y/n): ' + Style.RESET_ALL, end='')
+                      'Re-estimate using different notes? (y/n) ' + Style.RESET_ALL, end='')
                 again = input()
                 while again.lower() not in ('y', 'n'):
                     print(Fore.CYAN + Style.BRIGHT +
-                          'Re-estimate using another range?: (y/n): ' + Style.RESET_ALL, end='')
+                          'Re-estimate using different notes? (y/n) ' + Style.RESET_ALL, end='')
                     again = input()
 
                 if again.lower() == 'n':
                     break
 
-            print('hmp')
+    print()
 
 
 def show_spectrogram(filename, offset, duration):
-    # %% Detect onset frames
-    y, t_sr = librosa.load(
-        filename, sr=sample_rate, mono=True, offset=offset, duration=duration)
-    onset_frames = librosa.onset.onset_detect(y=y, sr=t_sr, hop_length=hop_len)
-    onset_time = librosa.frames_to_time(
-        onset_frames, sr=t_sr, hop_length=hop_len)
-
     # %% STFT
     y, sr = librosa.load(
         filename, sr=sample_rate, mono=True, offset=offset, duration=duration)
@@ -175,10 +229,15 @@ def show_spectrogram(filename, offset, duration):
         bin_xpos, bin_ypos, Ydb[min_bin: max_bin, :],  cmap=cmap)
     # plt.colorbar(format='%+2.0f dB', pad=0.1)
 
+    # %% Detect onset frames
+    onset_frames = librosa.onset.onset_detect(y=y, sr=sr, hop_length=hop_len)
+    onset_time = librosa.frames_to_time(
+        onset_frames, sr=sr, hop_length=hop_len)
+
     # %% Plot onset time
     count = 0
     for i in onset_time:
-        ax_freq_t.vlines(i, 0, sr / 2, colors='w', linestyles='solid')
+        ax_freq_t.vlines(i, 0, sr / 2, colors='w')
         ax_onset_t.text(i, 0, count)
         count += 1
 
@@ -203,7 +262,7 @@ def show_spectrogram(filename, offset, duration):
                             line_frames, sr=sr, hop_length=hop_len)
                         plt.plot(line_time, line_freq, color='g',
                                  linestyle='--', linewidth=1)
-                        if (line_freq[0] < 512):
+                        if (line_freq[0] < max_freq):
                             tunes.append(
                                 (line_time.tolist(), line_freq.copy()))
                     line_frames.clear()
@@ -211,7 +270,7 @@ def show_spectrogram(filename, offset, duration):
 
     # %% Configure note-time axis
     ax_note_t = ax_freq_t.twinx()
-    ax_note_t.set_ylabel('Note (relative to A4=440)')
+    ax_note_t.set_ylabel('Note (relative to A4=440Hz)')
     ax_note_t.set_yscale('log', basey=2)
     ax_note_t.set_ylim([min_freq, max_freq])
 
@@ -225,7 +284,7 @@ def show_spectrogram(filename, offset, duration):
     # %% Show the spectrogram
     plt.ion()
     plt.show()
-    return onset_frames, line_frames, line_freq
+    return tunes
 
 
 def estimate_a4(pitches, sr):
@@ -257,7 +316,7 @@ def auto_process(filename, offset, duration):
         filename, mono=True, offset=offset, duration=duration)
     pitches, magnitudes = librosa.piptrack(y, sr, threshold=pitch_threshold)
     a4 = estimate_a4(pitches, sr)
-    print('Estimated frequency of A4 is {:.1f}\n'.format(a4))
+    print('Estimated frequency of A4 is {:.1f}'.format(a4))
 
 
 def make_format(current, other):
