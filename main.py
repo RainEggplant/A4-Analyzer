@@ -215,15 +215,10 @@ def show_spectrogram(filename, offset, duration):
     ax_note_t.set_yscale('log', basey=2)
     ax_note_t.set_ylim([min_freq, max_freq])
 
-    # note = librosa.hz_to_note(2, cents=True)
-    # index = note.rfind('+')
-    # if (index == -1):
-    #     index = note.rfind('-')
-    # cent = int(note[index:])
-    factor = 0.031359713
-
+    # adjust the note tick to A4=440
+    tick_offset = 0.031359713
     ax_note_t.yaxis.set_major_locator(
-        ticker.LogLocator(base=2, subs=[2 ** i for i in (np.arange(0, 1, 1/12) + factor)]))
+        ticker.LogLocator(base=2, subs=[2 ** i for i in (np.arange(0, 1, 1/12) + tick_offset)]))
     ax_note_t.yaxis.set_major_formatter(librosa.display.NoteFormatter())
     ax_note_t.format_coord = make_format(ax_note_t, ax_freq_t)
 
