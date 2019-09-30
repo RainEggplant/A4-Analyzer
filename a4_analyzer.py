@@ -24,14 +24,14 @@ def main():
     colorama.init()
 
     parser = argparse.ArgumentParser(
-        description='''This tool can analyze audio files and estimate the frequecy of A4.''')
+        description='This tool can analyze audio files and estimate the frequecy of A4.')
     parser.add_argument("filename")
     parser.add_argument('-s', '--silent', action="store_true", dest='silent',
                         help='process the given audio file silently')
     parser.add_argument('-o', '--offset', dest='offset', type=float, default=0,
-                        help='the offset of the audio to process')
+                        help='the offset of the audio to process, default 0')
     parser.add_argument('-d', '--duration', dest='duration', type=float,
-                        help='the duration of the audio to process')
+                        help='the duration of the audio to process. It will process to the end if the argument is not used')
     args = parser.parse_args()
 
     if (args.silent):
@@ -95,6 +95,7 @@ def main():
                 print(Fore.YELLOW + Style.BRIGHT, end='')
                 auto_process(args.filename, args.offset +
                              start_time, end_time - start_time)
+                print()
 
                 # Re-estimate using another range
                 print(Style.RESET_ALL + Fore.CYAN + Style.BRIGHT +
